@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>To-Do List</title>
+<style>
+/* General styles */
+body {
+  margin: 0;
+  min-width: 250px;
+  font-family: Arial, sans-serif;
+  background: linear-gradient(135deg, #5b86e5, #36d1dc);
+  min-height: 100vh;
+  display: grid;
+  justify-content: center;
+  align-content: start;
+  padding-top: 30px;
+}
+
+.header {
+  padding: 30px 40px;
+  color: white;
+  text-align: center;
+}
+
+input[type="text"] {
+  padding: 10px;
+  width: calc(100% - 22px);
+  margin-bottom: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+}
+
+.addBtn {
+  padding: 10px;
+  width: 25%;
+  background: #d9d9d9;
+  color: #555;
+  float: left;
+  text-align: center;
+  font-size: 16px;
+  cursor: pointer;
+  transition: 0.3s;
+  border-radius: 0;
+}
+
+.addBtn:hover {
+  background-color: #bbb;
+}
+
+.notice {
+  background: #fff3cd;
+  color: #664d03;
+  padding: 8px 12px;
+  border-radius: 5px;
+  font-size: 13px;
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+li {
+  background-color: #f9f9f9;
+  padding: 10px;
+  border-bottom: 1px solid #ddd;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+li:last-child {
+  border-bottom: none;
+}
+
+li .edit {
+  background-color: #5cb85c;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 5px;
+  color: white;
+  cursor: pointer;
+}
+
+li .edit:hover {
+  background-color: #4cae4c;
+}
+
+li .close {
+  background-color: #d9534f;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 5px;
+  color: white;
+  cursor: pointer;
+}
+
+li .close:hover {
+  background-color: #c9302c;
+}
+
+li.checked {
+  background: #888;
+  color: #fff;
+  text-decoration: line-through;
+}
+</style>
+</head>
+<body>
+
+<div id="myDIV" class="header">
+  <h2 style="margin:5px">My To Do List</h2>
+  <input type="text" id="myInput" placeholder="Title...">
+  <input type="text" id="myDescription" placeholder="Description...">
+  <span onclick="newElement()" class="addBtn">Add</span>
+</div>
+
+<div id="notice" class="notice" hidden>
+  Demo mode: no backend found, tasks are saved in this browser only.
+</div>
+
+<ul id="myUL">
+  <!-- Filled dynamically -->
+</ul>
+
+<script>
+// Address of the backend REST API (the teammate's server during the internship).
+// Change this to your own server if you run the backend.
+const API_URL = 'http://127.0.0.1:8000/todo/';
+
+// If the backend cannot be reached, the app falls back to "demo mode"
+// and stores the tasks in the browser's localStorage instead.
+let demoMode = false;
+
+function loadLocalTasks() {
+  return JSON.parse(localStorage.getItem('tasks') || '[]');
+}
+
+function saveLocalTasks(tasks) {
+  localStorage.setItem('tasks', JSON.stringify(tasks));
+}
+
+function enableDemoMode() {
+  demoMode = true;
+  document.getElementById('notice').hidden = false;
+}
+
+// ---------- Data layer: REST API with localStorage fallback ----------
+
+async function apiGetTasks() {
+  try {
+    const response = await fetch(API_URL);
+    if (!response.ok) throw new Error('Network response was not ok');
+    return await response.json();
+  } catch (error) {
+    console.warn('Backend not reachable, using demo mode:', error);
+    enableDemoMode();
+    return loadLocalTasks();
+  }
+}
+
+async function apiCreateTask(newTask) {
+  if (demoMode) {
+    const tasks = loadLocalTasks();
+    const task = { id: Date.now(), ...newTask };
+    tasks.push(task);
+    saveLocalTasks(tasks);
+    return task;
+  }
+  const response = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(newTask)
+  });
+  if (!response.ok) throw new Error('Network response was not ok');
+  return await response.json();
+}
+
+async function apiUpdateTask(taskId, changes) {
+  if (demoMode) {
+    const tasks = loadLocalTasks().map(t =>
+      t.id === taskId ? { ...t, ...changes } : t
+    );
+    saveLocalTasks(tasks);
+    return;
+  }
+  const response = await fetch(`${API_URL}${taskId}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes)
+  });
+  if (!response.ok) throw new Error('Network response was not ok');
+}
+
+async function apiDeleteTask(taskId) {
+  if (demoMode) {
+    saveLocalTasks(loadLocalTasks().filter(t => t.id !== taskId));
+    return;
+  }
+  const response = await fetch(`${API_URL}${taskId}/`, { method: 'DELETE' });
+  if (!response.ok) throw new Error('Network response was not ok');
+}
+
+// ---------- UI ----------
+
+document.addEventListener('DOMContentLoaded', fetchTasks);
+
+async function fetchTasks() {
+  const tasks = await apiGetTasks();
+  const ul = document.getElementById('myUL');
+  ul.innerHTML = '';
+  tasks.forEach(addTaskToList);
+}
+
+async function newElement() {
+  const titleValue = document.getElementById('myInput').value;
+  const descriptionValue = document.getElementById('myDescription').value;
+  if (titleValue === '') {
+    alert('You must write a title!');
+    return;
+  }
+
+  try {
+    const task = await apiCreateTask({
+      title: titleValue,
+      description: descriptionValue,
+      completed: false
+    });
+    document.getElementById('myInput').value = '';
+    document.getElementById('myDescription').value = '';
+    addTaskToList(task);
+  } catch (error) {
+    console.error('Error creating new task:', error);
+  }
+}
+
+async function deleteTask(taskId, listItem) {
+  try {
+    await apiDeleteTask(taskId);
+    listItem.remove();
+  } catch (error) {
+    console.error('Error deleting task:', error);
+  }
+}
+
+function addTaskToList(task) {
+  const ul = document.getElementById('myUL');
+  const li = document.createElement('li');
+
+  const text = document.createElement('span');
+  text.textContent = `${task.title} - ${task.description}`;
+  li.appendChild(text);
+  li.dataset.id = task.id;
+
+  if (task.completed) {
+    li.classList.add('checked');
+  }
+
+  const editButton = document.createElement('button');
+  editButton.textContent = 'Edit';
+  editButton.classList.add('edit');
+  editButton.onclick = (event) => {
+    event.stopPropagation();
+    editTask(task, li, text);
+  };
+
+  const closeSpan = document.createElement('span');
+  closeSpan.textContent = '×';
+  closeSpan.classList.add('close');
+  closeSpan.onclick = (event) => {
+    event.stopPropagation();
+    deleteTask(task.id, li);
+  };
+
+  li.appendChild(editButton);
+  li.appendChild(closeSpan);
+
+  // Clicking a task toggles its "completed" state
+  li.addEventListener('click', async () => {
+    const isChecked = li.classList.toggle('checked');
+    try {
+      await apiUpdateTask(task.id, { completed: isChecked });
+      task.completed = isChecked;
+    } catch (error) {
+      li.classList.toggle('checked');
+      console.error('Error updating task completion:', error);
+    }
+  });
+
+  ul.appendChild(li);
+}
+
+async function editTask(task, listItem, textElement) {
+  const newTitle = prompt('Edit title:', task.title);
+  const newDescription = prompt('Edit description:', task.description);
+
+  if (newTitle !== null && newDescription !== null) {
+    try {
+      await apiUpdateTask(task.id, { title: newTitle, description: newDescription });
+      task.title = newTitle;
+      task.description = newDescription;
+      textElement.textContent = `${task.title} - ${task.description}`;
+    } catch (error) {
+      console.error('Error editing task:', error);
+    }
+  }
+}
+</script>
+
+</body>
+</html>
